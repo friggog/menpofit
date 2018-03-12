@@ -7,6 +7,7 @@ import numpy as np
 
 from menpo.feature import no_op
 from menpo.base import name_of_callable
+from menpo.transform import AlignmentSimilarity
 
 from menpofit import checks
 from menpofit.visualize import print_progress
@@ -19,6 +20,32 @@ from menpofit.builder import (scale_images, rescale_images_to_reference_shape,
 from menpofit.result import Result
 
 from .algorithm import DlibAlgorithm
+
+
+def align_shape_with_bounding_box(shape, bounding_box,
+                                  alignment_transform_cls=AlignmentSimilarity,
+                                  **kwargs):
+    r"""
+    Aligns the provided shape with the bounding box using a particular alignment
+    transform.
+
+    Parameters
+    ----------
+    shape : `menpo.shape.PointCloud`
+        The shape instance used in the alignment.
+    bounding_box : `menpo.shape.PointDirectedGraph`
+        The bounding box instance used in the alignment.
+    alignment_transform_cls : `menpo.transform.Alignment`, optional
+        The class of the alignment transform used to perform the alignment.
+
+    Returns
+    -------
+    noisy_shape : `menpo.shape.PointCloud`
+        The noisy shape
+    """
+    shape_bb = shape.bounding_box()
+    transform = alignment_transform_cls(shape_bb, bounding_box, **kwargs)
+    return transform.apply(shape)
 
 
 class DlibERT(MultiScaleNonParametricFitter):
@@ -129,7 +156,7 @@ class DlibERT(MultiScaleNonParametricFitter):
         on Computer Vision and Pattern Recognition. 2014.
     """
     def __init__(self, images, group=None, bounding_box_group_glob=None,
-                 reference_shape=None, diagonal=None, scales=(0.5, 1.0),
+                 reference_shape=None, diagonal=None, TIF=False, scales=(0.5, 1.0),
                  n_perturbations=30, n_dlib_perturbations=1,
                  perturb_from_gt_bounding_box=noisy_shape_from_bounding_box,
                  n_iterations=10, feature_padding=0, n_pixel_pairs=400,
@@ -162,7 +189,8 @@ class DlibERT(MultiScaleNonParametricFitter):
         for j in range(self.n_scales):
             self.algorithms.append(DlibAlgorithm(
                 self._dlib_options_templates[j],
-                n_iterations=self.n_iterations[j]))
+                n_iterations=self.n_iterations[j],
+                TIF=TIF))
 
         # Train DLIB over multiple scales
         self._train(images, group=group,
@@ -236,13 +264,13 @@ class DlibERT(MultiScaleNonParametricFitter):
         if self.reference_shape is None:
             # If no reference shape was given, use the mean of the first batch
             self._reference_shape = compute_reference_shape(
-                [i.landmarks['__gt_bb'] for i in original_images],
+                [i.landmarks['PTS'] for i in original_images],
                 self.diagonal, verbose=verbose)
 
         # Rescale images wrt the scale factor between the existing
         # reference_shape and their ground truth (group) bboxes
         images = rescale_images_to_reference_shape(
-            original_images, '__gt_bb', self.reference_shape,
+            original_images, '__gt_bb', self.reference_shape.bounding_box(),
             verbose=verbose)
 
         # Scaling is done - remove temporary gt bounding boxes
@@ -342,11 +370,23 @@ class DlibERT(MultiScaleNonParametricFitter):
         fitting_result : :map:`MultiScaleNonParametricIterativeResult`
             The result of the fitting procedure.
         """
-        warnings.warn('Fitting from an initial shape is not supported by '
-                      'Dlib - therefore we are falling back to the tightest '
-                      'bounding box from the given initial_shape')
-        tightest_bb = initial_shape.bounding_box()
-        return self.fit_from_bb(image, tightest_bb, gt_shape=gt_shape)
+        (images, initial_shapes, gt_shapes, affine_transforms,
+         scale_transforms) = self._prepare_image(image, initial_shape,
+                                                 gt_shape=gt_shape)
+
+        # Execute multi-scale fitting
+        algorithm_results = self._fit(images=images,
+                                      initial_shape=initial_shapes[0],
+                                      affine_transforms=affine_transforms,
+                                      scale_transforms=scale_transforms,
+                                      return_costs=False, gt_shapes=gt_shapes)
+
+        # Return multi-scale fitting result
+        return self._fitter_result(image=image,
+                                   algorithm_results=algorithm_results,
+                                   affine_transforms=affine_transforms,
+                                   scale_transforms=scale_transforms,
+                                   gt_shape=gt_shape)
 
     def fit_from_bb(self, image, bounding_box, gt_shape=None):
         r"""
@@ -367,31 +407,9 @@ class DlibERT(MultiScaleNonParametricFitter):
         fitting_result : :map:`MultiScaleNonParametricIterativeResult`
             The result of the fitting procedure.
         """
-        # Generate the list of images to be fitted, as well as the correctly
-        # scaled initial and ground truth shapes per level. The function also
-        # returns the lists of affine and scale transforms per level that are
-        # required in order to transform the shapes at the original image
-        # space in the fitting result. The affine transforms refer to the
-        # transform introduced by the rescaling to the reference shape as well
-        # as potential affine transform from the features. The scale
-        # transforms are the Scale objects that correspond to each level's
-        # scale.
-        (images, bounding_boxes, gt_shapes, affine_transforms,
-         scale_transforms) = self._prepare_image(image, bounding_box,
-                                                 gt_shape=gt_shape)
-
-        # Execute multi-scale fitting
-        algorithm_results = self._fit(images=images,
-                                      initial_shape=bounding_boxes[0],
-                                      affine_transforms=affine_transforms,
-                                      scale_transforms=scale_transforms,
-                                      return_costs=False, gt_shapes=gt_shapes)
-
-        # Return multi-scale fitting result
-        return self._fitter_result(image=image,
-                                   algorithm_results=algorithm_results,
-                                   affine_transforms=affine_transforms,
-                                   scale_transforms=scale_transforms,
+        initial_shape = align_shape_with_bounding_box(self.reference_shape,
+                                                      bounding_box)
+        return self.fit_from_shape(image=image, initial_shape=initial_shape,
                                    gt_shape=gt_shape)
 
     def __str__(self):
@@ -460,7 +478,7 @@ class DlibWrapper(object):
     model : `Path` or `str`
         Path to the pre-trained model.
     """
-    def __init__(self, model):
+    def __init__(self, model, TIF=False):
         if isinstance(model, STRING_TYPES) or isinstance(model, Path):
             m_path = Path(model)
             if not Path(m_path).exists():
@@ -470,7 +488,7 @@ class DlibWrapper(object):
         # Dlib doesn't expose any information about how the model was built,
         # so we just create dummy options
         self.algorithm = DlibAlgorithm(dlib.shape_predictor_training_options(),
-                                       n_iterations=0)
+                                       n_iterations=0, TIF=TIF)
         self.algorithm.dlib_model = model
         self.scales = [1]
 
@@ -497,11 +515,10 @@ class DlibWrapper(object):
         fitting_result : :map:`Result`
             The result of the fitting procedure.
         """
-        warnings.warn('Fitting from an initial shape is not supported by '
-                      'Dlib - therefore we are falling back to the tightest '
-                      'bounding box from the given initial_shape')
         tightest_bb = initial_shape.bounding_box()
-        return self.fit_from_bb(image, tightest_bb, gt_shape=gt_shape)
+        fit_result = self.algorithm.run(image, tightest_bb, gt_shape=gt_shape)
+        return Result(final_shape=fit_result.final_shape, image=image,
+                      initial_shape=initial_shape, gt_shape=gt_shape)
 
     def fit_from_bb(self, image, bounding_box, gt_shape=None):
         r"""
@@ -529,4 +546,4 @@ class DlibWrapper(object):
                       initial_shape=None, gt_shape=gt_shape)
 
     def __str__(self):
-        return "Pre-trained DLib Ensemble of Regression Trees model"
+        return "Pre-trained DLibEnsemble of Regression Trees model"

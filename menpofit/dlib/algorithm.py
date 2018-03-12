@@ -42,12 +42,13 @@ class DlibAlgorithm(object):
     n_iterations : `int`, optional
         Number of iterations (cascades).
     """
-    def __init__(self, dlib_options, n_iterations=10):
+    def __init__(self, dlib_options, n_iterations=10, TIF=False):
         self.dlib_model = None
         self._n_iterations = n_iterations
         self.dlib_options = copy_dlib_options(dlib_options)
         # T from Kazemi paper - Total number of cascades
         self.dlib_options.cascade_depth = int(self.n_iterations)
+        self.TIF_enabled = TIF
 
     @property
     def n_iterations(self):
@@ -115,8 +116,12 @@ class DlibAlgorithm(object):
 
         # Perform DLIB training
         self.dlib_options.be_verbose = verbose
-        self.dlib_model = dlib.train_shape_predictor(
-            im_pixels, detections, self.dlib_options)
+        if self.TIF_enabled:
+            self.dlib_model = dlib.train_shape_predictor_TIF(
+                im_pixels, detections, self.dlib_options)
+        else:
+            self.dlib_model = dlib.train_shape_predictor(
+                im_pixels, detections, self.dlib_options)
 
         for bboxes, pix, fo_dets in zip(bounding_boxes, im_pixels, detections):
             for bb, fo_det in zip(bboxes, fo_dets):
@@ -131,7 +136,7 @@ class DlibAlgorithm(object):
 
         return bounding_boxes
 
-    def run(self, image, bounding_box, gt_shape=None, return_costs=False,
+    def run(self, image, bounding_box, gt_shape=None, return_costs=False, initial_shape=None,
             **kwargs):
         r"""
         Run the predictor to an image given an initial bounding box.
@@ -164,8 +169,14 @@ class DlibAlgorithm(object):
 
         # Perform prediction
         pix = image_to_dlib_pixels(image)
-        rect = pointcloud_to_dlib_rect(bounding_box)
+        # if initial_shape is not None:
+        shape = bounding_box_pointcloud_to_dlib_fo_detection(
+            initial_shape.bounding_box(), initial_shape)
+        rect = pointcloud_to_dlib_rect(initial_shape.bounding_box())
+        # modified dlib does have option to take only rect as input but
+        # this just does the same thing anyway and makes life hard so
+        # initial shape is used in all cases instead
         pred = dlib_full_object_detection_to_pointcloud(
-                self.dlib_model(pix, rect))
+            self.dlib_model(pix, rect, shape))
         return NonParametricIterativeResult(
             shapes=[pred], initial_shape=None, image=image, gt_shape=gt_shape)
