@@ -546,4 +546,4 @@ class DlibWrapper(object):
                       initial_shape=None, gt_shape=gt_shape)
 
     def __str__(self):
-        return "Pre-trained DLibEnsemble of Regression Trees model"
+        return "Pre-trained DLib Ensemble of Regression Trees model"

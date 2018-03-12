@@ -136,7 +136,7 @@ class DlibAlgorithm(object):
 
         return bounding_boxes
 
-    def run(self, image, bounding_box, gt_shape=None, return_costs=False, initial_shape=None,
+    def run(self, image, shape, gt_shape=None, return_costs=False,
             **kwargs):
         r"""
         Run the predictor to an image given an initial bounding box.
