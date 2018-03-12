@@ -467,6 +467,13 @@ class DlibERT(MultiScaleNonParametricFitter):
            scales_info=scales_info)
         return cls_str
 
+    def save(self, path):
+        if self.n_scales > 1:
+            for j in range(self.n_scales):
+                self.algorithms[j].save(path + '_' + str(j))
+        else:
+            self.algorithms[0].save(path)
+
 
 class DlibWrapper(object):
     r"""

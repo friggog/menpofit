@@ -171,12 +171,15 @@ class DlibAlgorithm(object):
         pix = image_to_dlib_pixels(image)
         # if initial_shape is not None:
         shape = bounding_box_pointcloud_to_dlib_fo_detection(
-            initial_shape.bounding_box(), initial_shape)
-        rect = pointcloud_to_dlib_rect(initial_shape.bounding_box())
+            shape.bounding_box(), shape)
+        rect = pointcloud_to_dlib_rect(shape.bounding_box())
         # modified dlib does have option to take only rect as input but
         # this just does the same thing anyway and makes life hard so
         # initial shape is used in all cases instead
         pred = dlib_full_object_detection_to_pointcloud(
             self.dlib_model(pix, rect, shape))
         return NonParametricIterativeResult(
-            shapes=[pred], initial_shape=None, image=image, gt_shape=gt_shape)
+            shapes=[pred], initial_shape=shape, image=image, gt_shape=gt_shape)
+
+    def save(self, path):
+        self.dlib_model.save(path)
