@@ -407,6 +407,8 @@ class DlibERT(MultiScaleNonParametricFitter):
         fitting_result : :map:`MultiScaleNonParametricIterativeResult`
             The result of the fitting procedure.
         """
+        # pain to use bounding box directly as parent class implements stuff
+        # to handle menpo crap so just project mean shape into box and use that
         initial_shape = align_shape_with_bounding_box(self.reference_shape,
                                                       bounding_box)
         return self.fit_from_shape(image=image, initial_shape=initial_shape,
@@ -522,8 +524,7 @@ class DlibWrapper(object):
         fitting_result : :map:`Result`
             The result of the fitting procedure.
         """
-        tightest_bb = initial_shape.bounding_box()
-        fit_result = self.algorithm.run(image, tightest_bb, gt_shape=gt_shape)
+        fit_result = self.algorithm.run(image, initial_shape, gt_shape=gt_shape)
         return Result(final_shape=fit_result.final_shape, image=image,
                       initial_shape=initial_shape, gt_shape=gt_shape)
 
@@ -548,7 +549,7 @@ class DlibWrapper(object):
         # We get back a NonParametricIterativeResult with one iteration,
         # which is pointless. Simply convert it to a Result instance without
         # passing in an initial shape.
-        fit_result = self.algorithm.run(image, bounding_box, gt_shape=gt_shape)
+        fit_result = self.algorithm.run(image, None, bounding_box=bounding_box, gt_shape=gt_shape)
         return Result(final_shape=fit_result.final_shape, image=image,
                       initial_shape=None, gt_shape=gt_shape)
 

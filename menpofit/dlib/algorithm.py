@@ -136,8 +136,8 @@ class DlibAlgorithm(object):
 
         return bounding_boxes
 
-    def run(self, image, shape, gt_shape=None, return_costs=False,
-            **kwargs):
+    def run(self, image, initial_shape, gt_shape=None, return_costs=False,
+            bounding_box=None, **kwargs):
         r"""
         Run the predictor to an image given an initial bounding box.
 
@@ -169,15 +169,18 @@ class DlibAlgorithm(object):
 
         # Perform prediction
         pix = image_to_dlib_pixels(image)
-        # if initial_shape is not None:
-        shape = bounding_box_pointcloud_to_dlib_fo_detection(
-            shape.bounding_box(), shape)
-        rect = pointcloud_to_dlib_rect(shape.bounding_box())
-        # modified dlib does have option to take only rect as input but
-        # this just does the same thing anyway and makes life hard so
-        # initial shape is used in all cases instead
-        pred = dlib_full_object_detection_to_pointcloud(
-            self.dlib_model(pix, rect, shape))
+        if initial_shape is not None:
+            shape = bounding_box_pointcloud_to_dlib_fo_detection(
+                initial_shape.bounding_box(), initial_shape)
+            rect = pointcloud_to_dlib_rect(initial_shape.bounding_box())
+            pred = dlib_full_object_detection_to_pointcloud(
+                self.dlib_model(pix, rect, shape))
+        elif bounding_box is not None:
+            rect = pointcloud_to_dlib_rect(bounding_box)
+            pred = dlib_full_object_detection_to_pointcloud(
+                self.dlib_model(pix, rect))
+        else:
+            raise Exception('dlib need some input...')
         return NonParametricIterativeResult(
             shapes=[pred], initial_shape=shape, image=image, gt_shape=gt_shape)
 
