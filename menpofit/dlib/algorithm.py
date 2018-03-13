@@ -182,7 +182,7 @@ class DlibAlgorithm(object):
         else:
             raise Exception('dlib need some input...')
         return NonParametricIterativeResult(
-            shapes=[pred], initial_shape=shape, image=image, gt_shape=gt_shape)
+            shapes=[pred], initial_shape=initial_shape, image=image, gt_shape=gt_shape)
 
     def save(self, path):
         self.dlib_model.save(path)
